@@ -1,0 +1,26 @@
+{
+  "name": "fabiomez/object-constructor",
+  "type": "library",
+  "license": "MIT",
+  "description": "Construct PHP objects.",
+  "authors": [
+    {
+      "name": "Fabio Mezini",
+      "email": "fabiomezini@gmail.com"
+    }
+  ],
+  "keywords": ["php","constructor","instantiator"],
+  "minimum-stability": "dev",
+  "require": {
+    "php": ">=8.1"
+  },
+  "require-dev": {
+    "phpunit/phpunit": "9.5.20"
+  },
+  "autoload": {
+    "psr-4": {
+      "Fabiomez\\ObjectConstructor\\": "./src",
+      "Tests\\": "./tests"
+    }
+  }
+}
