@@ -89,8 +89,17 @@ class ConstructorTest extends TestCase
     public function testAttributesErrorMapping()
     {
         $inputData = [
-            'id' => 'Orange',
-            'personType' => 'LL'
+            'id' => '1234',
+            'name' => [
+                'first' => 'Manuel',
+                'last' => 'Silva'
+            ],
+            'personType' => 'PF',
+            'phone' => [
+                'countryCode' => null,
+                'areaCode' => '11',
+                'number' => '999999999'
+            ],
         ];
 
         try {
