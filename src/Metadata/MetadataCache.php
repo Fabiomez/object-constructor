@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Fabiomez\ObjectConstructor\Metadata;
 
 use ReflectionException;
-use ReflectionMethod;
+use ReflectionClass;
 
 final class MetadataCache
 {
@@ -21,7 +21,8 @@ final class MetadataCache
     /** @throws ReflectionException */
     private function inspect(string $className): ClassMetadata
     {
-        $parameters = (new ReflectionMethod($className, '__construct'))->getParameters();
+        $constructor = (new ReflectionClass($className))->getConstructor();
+        $parameters = $constructor?->getParameters() ?? [];
         $metadata = [];
 
         foreach ($parameters as $parameter) {
