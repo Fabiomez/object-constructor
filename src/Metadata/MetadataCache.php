@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Fabiomez\ObjectConstructor\Metadata;
 
-use ReflectionException;
 use ReflectionClass;
+use ReflectionException;
 
 final class MetadataCache
 {
