@@ -21,7 +21,6 @@ use ReflectionClass;
 use ReflectionException;
 use ReflectionIntersectionType;
 use ReflectionNamedType;
-use ReflectionType;
 use ReflectionUnionType;
 use Throwable;
 
@@ -240,7 +239,9 @@ final class Constructor
 
         $errors = [];
         foreach ($candidates as $candidate) {
-            $candidateName = $this->describeReflectionType($candidate);
+            $candidateName = $candidate instanceof ReflectionNamedType
+                ? $candidate->getName()
+                : (string) $candidate;
             try {
                 if ($candidate instanceof ReflectionNamedType) {
                     return $this->constructNamedType($candidate, $value, $options);
@@ -285,15 +286,6 @@ final class Constructor
             }
         }
         return $value;
-    }
-
-    private function describeReflectionType(ReflectionType $type): string
-    {
-        if ($type instanceof ReflectionNamedType) {
-            return $type->getName();
-        }
-
-        return (string) $type;
     }
 
     private function constructDateTime(mixed $value, bool $immutable): DateTimeInterface
