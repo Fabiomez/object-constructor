@@ -225,14 +225,15 @@ final class Constructor
         $candidates = $type->getTypes();
 
         foreach ($candidates as $candidate) {
-            if ($candidate instanceof ReflectionNamedType) {
-                $name = $candidate->getName();
-                if (!$candidate->isBuiltin() && is_object($value) && $value instanceof $name) {
-                    return $value;
-                }
-                if ($candidate->isBuiltin() && $this->isCompatibleBuiltin($name, $value)) {
-                    return $this->castBuiltin($name, $value, $options->mode);
-                }
+            if (!$candidate instanceof ReflectionNamedType) {
+                continue;
+            }
+            $name = $candidate->getName();
+            if (!$candidate->isBuiltin() && is_object($value) && $value instanceof $name) {
+                return $value;
+            }
+            if ($candidate->isBuiltin() && $this->isCompatibleBuiltin($name, $value)) {
+                return $this->castBuiltin($name, $value, $options->mode);
             }
         }
 
@@ -243,11 +244,9 @@ final class Constructor
                     return $this->constructNamedType($candidate, $value, $options);
                 }
 
-                $this->constructIntersectionType($candidate, $value);
-                return $value;
+                return $this->constructIntersectionType($candidate, $value);
             } catch (Throwable $exception) {
-                $candidateName = $candidate instanceof ReflectionNamedType ? $candidate->getName() : 'intersection';
-                $errors[] = $candidateName . ': ' . $exception->getMessage();
+                $errors[] = ($candidate instanceof ReflectionNamedType ? $candidate->getName() : 'intersection') . ': ' . $exception->getMessage();
             }
         }
 
@@ -294,13 +293,8 @@ final class Constructor
             throw new ConstructException('', 'DateTime input must be a string, timestamp or DateTimeInterface.');
         }
         if (is_numeric($value)) {
-            if ($immutable) {
-                $date = new DateTimeImmutable('@' . $value);
-                return $date->setTimezone(new DateTimeZone(date_default_timezone_get()));
-            }
-            $date = new DateTime('@' . $value);
-            $date->setTimezone(new DateTimeZone(date_default_timezone_get()));
-            return $date;
+            $date = $immutable ? new DateTimeImmutable('@' . $value) : new DateTime('@' . $value);
+            return $date->setTimezone(new DateTimeZone(date_default_timezone_get()));
         }
         return new $className($value);
     }
