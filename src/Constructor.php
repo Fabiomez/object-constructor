@@ -5,7 +5,10 @@ declare(strict_types=1);
 namespace Fabiomez\ObjectConstructor;
 
 use BackedEnum;
+use DateTime;
+use DateTimeImmutable;
 use DateTimeInterface;
+use DateTimeZone;
 use Fabiomez\ObjectConstructor\Metadata\ClassMetadata;
 use Fabiomez\ObjectConstructor\Metadata\MetadataCache;
 use Fabiomez\ObjectConstructor\Metadata\ParameterMetadata;
@@ -14,9 +17,11 @@ use Fabiomez\ObjectConstructor\Options\ConstructionOptions;
 use Fabiomez\ObjectConstructor\Options\UnknownPropertyHandling;
 use Fabiomez\ObjectConstructor\Resolver\ValueResolver;
 use ReflectionAttribute;
+use ReflectionClass;
 use ReflectionException;
 use ReflectionIntersectionType;
 use ReflectionNamedType;
+use ReflectionType;
 use ReflectionUnionType;
 use Throwable;
 
@@ -107,9 +112,6 @@ final class Constructor
     private function constructParameterValue(ParameterMetadata $parameter, mixed $value, ConstructionOptions $options): mixed
     {
         foreach ($this->resolvers as $resolver) {
-            if (!$resolver instanceof ValueResolver) {
-                throw new \InvalidArgumentException('All resolvers must implement ValueResolver.');
-            }
             if ($resolver->supports($parameter, $value)) {
                 return $resolver->resolve($this, $parameter, $value);
             }
@@ -129,7 +131,11 @@ final class Constructor
         if ($type instanceof ReflectionUnionType) {
             return $this->constructUnionType($type, $value, $options);
         }
-        return $this->constructIntersectionType($type, $value);
+        if ($type instanceof ReflectionIntersectionType) {
+            return $this->constructIntersectionType($type, $value);
+        }
+
+        throw new ConstructException('', 'Unsupported reflection type.');
     }
 
     /** @throws ReflectionException */
@@ -145,14 +151,18 @@ final class Constructor
         if (is_a($name, BackedEnum::class, true)) {
             return $name::from($value);
         }
-        if ($name === 'DateTime' || $name === 'DateTimeImmutable') {
-            return $this->constructDateTime($name, $value);
+        if ($name === DateTime::class) {
+            return $this->constructDateTime($value, false);
+        }
+        if ($name === DateTimeImmutable::class) {
+            return $this->constructDateTime($value, true);
         }
         if (is_object($value) && $value instanceof $name) {
             return $value;
         }
 
-        $reflection = new \ReflectionClass($name);
+        /** @var class-string<object> $name */
+        $reflection = new ReflectionClass($name);
         $factory = $reflection->getAttributes(Factoryable::class)[0] ?? null;
         if ($factory !== null) {
             return $factory->newInstance()->create($value);
@@ -245,7 +255,7 @@ final class Constructor
         };
     }
 
-    private function constructIntersectionType(ReflectionIntersectionType $type, mixed $value): mixed
+    private function constructIntersectionType(ReflectionIntersectionType $type, mixed $value): object
     {
         if (!is_object($value)) {
             throw new ConstructException('', 'Intersection types require an object instance.');
@@ -259,8 +269,9 @@ final class Constructor
         return $value;
     }
 
-    private function constructDateTime(string $className, mixed $value): DateTimeInterface
+    private function constructDateTime(mixed $value, bool $immutable): DateTimeInterface
     {
+        $className = $immutable ? DateTimeImmutable::class : DateTime::class;
         if ($value instanceof DateTimeInterface) {
             return $value instanceof $className ? $value : new $className($value->format(DateTimeInterface::ATOM));
         }
@@ -268,14 +279,18 @@ final class Constructor
             throw new ConstructException('', 'DateTime input must be a string, timestamp or DateTimeInterface.');
         }
         if (is_numeric($value)) {
-            $date = new $className('@' . $value);
-            $date->setTimezone(new \DateTimeZone(date_default_timezone_get()));
+            if ($immutable) {
+                $date = new DateTimeImmutable('@' . $value);
+                return $date->setTimezone(new DateTimeZone(date_default_timezone_get()));
+            }
+            $date = new DateTime('@' . $value);
+            $date->setTimezone(new DateTimeZone(date_default_timezone_get()));
             return $date;
         }
         return new $className($value);
     }
 
-    /** @throws ReflectionException */
+    /** @param ReflectionAttribute<Collection> $attribute @param array<array-key, mixed> $items @return array<array-key, mixed> */
     private function constructCollectionItems(ReflectionAttribute $attribute, array $items, ConstructionOptions $options): array
     {
         $itemClassName = $attribute->newInstance()->itemType;
