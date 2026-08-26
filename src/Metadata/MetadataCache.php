@@ -9,7 +9,7 @@ use ReflectionException;
 
 final class MetadataCache
 {
-    /** @var array<class-string, ClassMetadata> */
+    /** @var array<string, ClassMetadata> */
     private array $cache = [];
 
     /** @throws ReflectionException */
@@ -21,7 +21,9 @@ final class MetadataCache
     /** @throws ReflectionException */
     private function inspect(string $className): ClassMetadata
     {
-        $constructor = (new ReflectionClass($className))->getConstructor();
+        /** @var class-string<object> $className */
+        $reflection = new ReflectionClass($className);
+        $constructor = $reflection->getConstructor();
         $parameters = $constructor?->getParameters() ?? [];
         $metadata = [];
 
