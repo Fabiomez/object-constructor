@@ -242,10 +242,12 @@ final class Constructor
                 if ($candidate instanceof ReflectionNamedType) {
                     return $this->constructNamedType($candidate, $value, $options);
                 }
+
                 $this->constructIntersectionType($candidate, $value);
                 return $value;
             } catch (Throwable $exception) {
-                $errors[] = ($candidate instanceof ReflectionNamedType ? $candidate->getName() : 'intersection') . ': ' . $exception->getMessage();
+                $candidateName = $candidate instanceof ReflectionNamedType ? $candidate->getName() : 'intersection';
+                $errors[] = $candidateName . ': ' . $exception->getMessage();
             }
         }
 
