@@ -45,7 +45,7 @@ final class ConstructorV2Test extends TestCase
     {
         $this->expectException(ConstructException::class);
         (new Constructor())->create(
-            SimpleObject::class,
+            MultiPropertyObject::class,
             ['value' => 'ok', 'unexpected' => true],
             new ConstructionOptions(
                 unknownProperties: UnknownPropertyHandling::FAIL,
@@ -55,11 +55,12 @@ final class ConstructorV2Test extends TestCase
 
     public function testUnknownPropertiesAreIgnoredByDefault(): void
     {
-        $object = (new Constructor())->create(SimpleObject::class, [
+        $object = (new Constructor())->create(MultiPropertyObject::class, [
             'value' => 'ok',
             'unexpected' => true,
         ]);
         self::assertSame('ok', $object->value);
+        self::assertSame('default', $object->other);
     }
 }
 
@@ -83,9 +84,11 @@ final class StrictObject
     }
 }
 
-final class SimpleObject
+final class MultiPropertyObject
 {
-    public function __construct(public readonly string $value)
-    {
+    public function __construct(
+        public readonly string $value,
+        public readonly string $other = 'default',
+    ) {
     }
 }
