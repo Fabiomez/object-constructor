@@ -21,7 +21,6 @@ use ReflectionClass;
 use ReflectionException;
 use ReflectionIntersectionType;
 use ReflectionNamedType;
-use ReflectionType;
 use ReflectionUnionType;
 use Throwable;
 
@@ -61,14 +60,25 @@ final class Constructor
     }
 
     /** @throws ReflectionException */
-    private function constructSingleValueObject(string $className, ParameterMetadata $parameter, mixed $inputData, ConstructionOptions $options): object
-    {
+    private function constructSingleValueObject(
+        string $className,
+        ParameterMetadata $parameter,
+        mixed $inputData,
+        ConstructionOptions $options,
+    ): object {
         return new $className($this->constructParameterValue($parameter, $inputData, $options));
     }
 
-    /** @throws ReflectionException */
-    private function constructMultiValueObject(string $className, ClassMetadata $classMetadata, array $inputData, ConstructionOptions $options): object
-    {
+    /**
+     * @param array<string, mixed> $inputData
+     * @throws ReflectionException
+     */
+    private function constructMultiValueObject(
+        string $className,
+        ClassMetadata $classMetadata,
+        array $inputData,
+        ConstructionOptions $options,
+    ): object {
         if ($options->unknownProperties === UnknownPropertyHandling::FAIL) {
             $known = array_map(static fn (ParameterMetadata $parameter): string => $parameter->name, $classMetadata->parameters);
             $unknown = array_diff(array_keys($inputData), $known);
@@ -213,9 +223,6 @@ final class Constructor
     private function constructUnionType(ReflectionUnionType $type, mixed $value, ConstructionOptions $options): mixed
     {
         foreach ($type->getTypes() as $candidate) {
-            if (!$candidate instanceof ReflectionNamedType) {
-                continue;
-            }
             $name = $candidate->getName();
             if (!$candidate->isBuiltin() && is_object($value) && $value instanceof $name) {
                 return $value;
@@ -227,9 +234,6 @@ final class Constructor
 
         $errors = [];
         foreach ($type->getTypes() as $candidate) {
-            if (!$candidate instanceof ReflectionNamedType || $candidate->getName() === 'null') {
-                continue;
-            }
             try {
                 return $this->constructNamedType($candidate, $value, $options);
             } catch (Throwable $exception) {
@@ -290,9 +294,14 @@ final class Constructor
         return new $className($value);
     }
 
-    /** @param ReflectionAttribute<Collection> $attribute @param array<array-key, mixed> $items @return array<array-key, mixed> */
+    /**
+     * @param ReflectionAttribute<Collection> $attribute
+     * @param array<array-key, mixed> $items
+     * @return array<array-key, mixed>
+     */
     private function constructCollectionItems(ReflectionAttribute $attribute, array $items, ConstructionOptions $options): array
     {
+        /** @var class-string<object> $itemClassName */
         $itemClassName = $attribute->newInstance()->itemType;
         $builtItems = [];
         foreach ($items as $key => $item) {
