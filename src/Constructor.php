@@ -70,7 +70,7 @@ final class Constructor
     }
 
     /**
-     * @param array<string, mixed> $inputData
+     * @param array<array-key, mixed> $inputData
      * @throws ReflectionException
      */
     private function constructMultiValueObject(
@@ -222,24 +222,33 @@ final class Constructor
     /** @throws ReflectionException */
     private function constructUnionType(ReflectionUnionType $type, mixed $value, ConstructionOptions $options): mixed
     {
-        foreach ($type->getTypes() as $candidate) {
-            $name = $candidate->getName();
-            if (!$candidate->isBuiltin() && is_object($value) && $value instanceof $name) {
-                return $value;
-            }
-            if ($candidate->isBuiltin() && $this->isCompatibleBuiltin($name, $value)) {
-                return $this->castBuiltin($name, $value, $options->mode);
+        $candidates = $type->getTypes();
+
+        foreach ($candidates as $candidate) {
+            if ($candidate instanceof ReflectionNamedType) {
+                $name = $candidate->getName();
+                if (!$candidate->isBuiltin() && is_object($value) && $value instanceof $name) {
+                    return $value;
+                }
+                if ($candidate->isBuiltin() && $this->isCompatibleBuiltin($name, $value)) {
+                    return $this->castBuiltin($name, $value, $options->mode);
+                }
             }
         }
 
         $errors = [];
-        foreach ($type->getTypes() as $candidate) {
+        foreach ($candidates as $candidate) {
             try {
-                return $this->constructNamedType($candidate, $value, $options);
+                if ($candidate instanceof ReflectionNamedType) {
+                    return $this->constructNamedType($candidate, $value, $options);
+                }
+                $this->constructIntersectionType($candidate, $value);
+                return $value;
             } catch (Throwable $exception) {
-                $errors[] = $candidate->getName() . ': ' . $exception->getMessage();
+                $errors[] = ($candidate instanceof ReflectionNamedType ? $candidate->getName() : 'intersection') . ': ' . $exception->getMessage();
             }
         }
+
         throw new ConstructException('', 'Unable to resolve union type. ' . implode(' | ', $errors));
     }
 
