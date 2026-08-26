@@ -21,6 +21,7 @@ use ReflectionClass;
 use ReflectionException;
 use ReflectionIntersectionType;
 use ReflectionNamedType;
+use ReflectionType;
 use ReflectionUnionType;
 use Throwable;
 
@@ -239,23 +240,29 @@ final class Constructor
 
         $errors = [];
         foreach ($candidates as $candidate) {
-            $candidateName = $candidate instanceof ReflectionNamedType
-                ? $candidate->getName()
-                : (string) $candidate;
+            $candidateName = $this->describeReflectionType($candidate);
             try {
-                if ($candidate instanceof ReflectionNamedType) {
-                    return $this->constructNamedType($candidate, $value, $options);
-                }
-                if ($candidate instanceof ReflectionIntersectionType) {
-                    return $this->constructIntersectionType($candidate, $value);
-                }
-                throw new ConstructException('', 'Unsupported union member type.');
+                return $this->constructUnionCandidate($candidate, $value, $options);
             } catch (Throwable $exception) {
                 $errors[] = $candidateName . ': ' . $exception->getMessage();
             }
         }
 
         throw new ConstructException('', 'Unable to resolve union type. ' . implode(' | ', $errors));
+    }
+
+    /** @throws ReflectionException */
+    private function constructUnionCandidate(ReflectionType $candidate, mixed $value, ConstructionOptions $options): mixed
+    {
+        if ($candidate instanceof ReflectionNamedType) {
+            return $this->constructNamedType($candidate, $value, $options);
+        }
+
+        if ($candidate instanceof ReflectionIntersectionType) {
+            return $this->constructIntersectionType($candidate, $value);
+        }
+
+        throw new ConstructException('', 'Unsupported union member type.');
     }
 
     private function isCompatibleBuiltin(string $name, mixed $value): bool
@@ -286,6 +293,14 @@ final class Constructor
             }
         }
         return $value;
+    }
+
+    private function describeReflectionType(ReflectionType $type): string
+    {
+        if ($type instanceof ReflectionNamedType) {
+            return $type->getName();
+        }
+        return (string) $type;
     }
 
     private function constructDateTime(mixed $value, bool $immutable): DateTimeInterface
