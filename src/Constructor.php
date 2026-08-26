@@ -239,6 +239,9 @@ final class Constructor
 
         $errors = [];
         foreach ($candidates as $candidate) {
+            $candidateName = $candidate instanceof ReflectionNamedType
+                ? $candidate->getName()
+                : 'intersection';
             try {
                 if ($candidate instanceof ReflectionNamedType) {
                     return $this->constructNamedType($candidate, $value, $options);
@@ -246,7 +249,7 @@ final class Constructor
 
                 return $this->constructIntersectionType($candidate, $value);
             } catch (Throwable $exception) {
-                $errors[] = ($candidate instanceof ReflectionNamedType ? $candidate->getName() : 'intersection') . ': ' . $exception->getMessage();
+                $errors[] = $candidateName . ': ' . $exception->getMessage();
             }
         }
 
