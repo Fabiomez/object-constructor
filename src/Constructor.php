@@ -21,6 +21,7 @@ use ReflectionClass;
 use ReflectionException;
 use ReflectionIntersectionType;
 use ReflectionNamedType;
+use ReflectionType;
 use ReflectionUnionType;
 use Throwable;
 
@@ -239,15 +240,15 @@ final class Constructor
 
         $errors = [];
         foreach ($candidates as $candidate) {
-            $candidateName = $candidate instanceof ReflectionNamedType
-                ? $candidate->getName()
-                : 'intersection';
+            $candidateName = $this->describeReflectionType($candidate);
             try {
                 if ($candidate instanceof ReflectionNamedType) {
                     return $this->constructNamedType($candidate, $value, $options);
                 }
-
-                return $this->constructIntersectionType($candidate, $value);
+                if ($candidate instanceof ReflectionIntersectionType) {
+                    return $this->constructIntersectionType($candidate, $value);
+                }
+                throw new ConstructException('', 'Unsupported union member type.');
             } catch (Throwable $exception) {
                 $errors[] = $candidateName . ': ' . $exception->getMessage();
             }
@@ -286,6 +287,15 @@ final class Constructor
         return $value;
     }
 
+    private function describeReflectionType(ReflectionType $type): string
+    {
+        if ($type instanceof ReflectionNamedType) {
+            return $type->getName();
+        }
+
+        return (string) $type;
+    }
+
     private function constructDateTime(mixed $value, bool $immutable): DateTimeInterface
     {
         $className = $immutable ? DateTimeImmutable::class : DateTime::class;
@@ -296,8 +306,13 @@ final class Constructor
             throw new ConstructException('', 'DateTime input must be a string, timestamp or DateTimeInterface.');
         }
         if (is_numeric($value)) {
-            $date = $immutable ? new DateTimeImmutable('@' . $value) : new DateTime('@' . $value);
-            return $date->setTimezone(new DateTimeZone(date_default_timezone_get()));
+            if ($immutable) {
+                $date = new DateTimeImmutable('@' . $value);
+                return $date->setTimezone(new DateTimeZone(date_default_timezone_get()));
+            }
+            $date = new DateTime('@' . $value);
+            $date->setTimezone(new DateTimeZone(date_default_timezone_get()));
+            return $date;
         }
         return new $className($value);
     }
