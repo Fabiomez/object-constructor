@@ -70,7 +70,7 @@ final class Constructor
     }
 
     /**
-     * @param array<string, mixed> $inputData
+     * @param array<array-key, mixed> $inputData
      * @throws ReflectionException
      */
     private function constructMultiValueObject(
