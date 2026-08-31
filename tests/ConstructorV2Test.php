@@ -230,7 +230,7 @@ final class ConstructorV2Test extends TestCase
 
     public function testResolvesUnionObjectFromArray(): void
     {
-        $object = (new Constructor())->construct(UnionObject::class, ['value' => 'ok']);
+        $object = (new Constructor())->construct(UnionContainerObject::class, ['value' => ['value' => 'ok']]);
 
         self::assertInstanceOf(ChildObject::class, $object->value);
         self::assertSame('ok', $object->value->value);
@@ -253,9 +253,11 @@ final class ConstructorV2Test extends TestCase
 
     public function testCollectionAttributeConstructsEachItem(): void
     {
-        $object = (new Constructor())->construct(CollectionObject::class, [
-            'first' => ['value' => 'one'],
-            10 => ['value' => 'ten'],
+        $object = (new Constructor())->construct(CollectionContainerObject::class, [
+            'items' => [
+                'first' => ['value' => 'one'],
+                10 => ['value' => 'ten'],
+            ],
         ]);
 
         self::assertSame(['first', 10], array_keys($object->items));
@@ -267,12 +269,12 @@ final class ConstructorV2Test extends TestCase
     {
         $this->expectException(ConstructException::class);
 
-        (new Constructor())->construct(CollectionObject::class, 'invalid');
+        (new Constructor())->construct(CollectionContainerObject::class, ['items' => 'invalid']);
     }
 
     public function testFactoryableAttributeCreatesValue(): void
     {
-        $object = (new Constructor())->construct(FactoryObject::class, 'ok');
+        $object = (new Constructor())->construct(FactoryContainerObject::class, ['value' => 'ok']);
 
         self::assertSame('factory:ok', $object->value->value);
     }
@@ -280,7 +282,7 @@ final class ConstructorV2Test extends TestCase
     public function testFactoryableAttributeCanReturnExistingObject(): void
     {
         $product = new FactoryProduct('existing');
-        $object = (new Constructor())->construct(FactoryObject::class, $product);
+        $object = (new Constructor())->construct(FactoryContainerObject::class, ['value' => $product]);
 
         self::assertSame($product, $object->value);
     }
@@ -441,6 +443,15 @@ final class UnionObject
     }
 }
 
+final class UnionContainerObject
+{
+    public function __construct(
+        public readonly string $name,
+        public readonly int|ChildObject $value,
+    ) {
+    }
+}
+
 final class IntersectionObject
 {
     public function __construct(public readonly IntersectionLeft&IntersectionRight $value)
@@ -472,7 +483,7 @@ final class PartialIntersectionValue implements IntersectionLeft
 }
 
 #[Collection(itemType: ChildObject::class)]
-final class CollectionObject
+final class ChildCollection
 {
     /** @param list<ChildObject> $items */
     public function __construct(public readonly array $items)
@@ -480,10 +491,24 @@ final class CollectionObject
     }
 }
 
-#[Factoryable(factory: FactoryObjectFactory::class)]
-final class FactoryObject
+final class CollectionContainerObject
 {
-    public function __construct(public readonly FactoryProduct $value)
+    public function __construct(public readonly ChildCollection $items)
+    {
+    }
+}
+
+#[Factoryable(factory: FactoryObjectFactory::class)]
+final class FactoryProductValue
+{
+    public function __construct(public readonly string $value)
+    {
+    }
+}
+
+final class FactoryContainerObject
+{
+    public function __construct(public readonly FactoryProductValue $value)
     {
     }
 }
@@ -497,13 +522,13 @@ final class FactoryProduct
 
 final class FactoryObjectFactory
 {
-    public static function create(mixed $value): FactoryProduct
+    public static function create(mixed $value): FactoryProductValue
     {
-        if ($value instanceof FactoryProduct) {
+        if ($value instanceof FactoryProductValue) {
             return $value;
         }
 
-        return new FactoryProduct('factory:' . (string) $value);
+        return new FactoryProductValue('factory:' . (string) $value);
     }
 }
 
@@ -552,12 +577,5 @@ final class CapturingResolver implements ValueResolver
         $this->parameterType = $parameter->type;
 
         return new CustomValue('resolved:' . $value);
-    }
-}
-
-final class ParentObject
-{
-    public function __construct(public readonly ChildObject $child)
-    {
     }
 }
