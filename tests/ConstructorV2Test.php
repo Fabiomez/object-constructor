@@ -25,7 +25,7 @@ final class ConstructorV2Test extends TestCase
 {
     public function testCreateAliasConstructsObject(): void
     {
-        $object = (new Constructor())->create(SimpleObject::class, 'ok');
+        $object = (new Constructor())->create(SimpleObject::class, ['value' => 'ok']);
 
         self::assertInstanceOf(SimpleObject::class, $object);
         self::assertSame('ok', $object->value);
@@ -86,7 +86,7 @@ final class ConstructorV2Test extends TestCase
         $this->expectException(ConstructException::class);
         $this->expectExceptionMessage('Required constructor parameter is missing.');
 
-        (new Constructor())->construct(RequiredObject::class, ['value' => 'ok']);
+        (new Constructor())->construct(RequiredObject::class, ['other' => 'ignored']);
     }
 
     public function testUnknownPropertiesAreIgnoredByDefault(): void
@@ -116,7 +116,7 @@ final class ConstructorV2Test extends TestCase
     {
         $object = (new Constructor())->create(
             StrictObject::class,
-            123,
+            ['value' => 123],
             new ConstructionOptions(ConstructionMode::STRICT),
         );
 
@@ -129,7 +129,7 @@ final class ConstructorV2Test extends TestCase
 
         (new Constructor())->create(
             StrictObject::class,
-            '123',
+            ['value' => '123'],
             new ConstructionOptions(ConstructionMode::STRICT),
         );
     }
@@ -140,15 +140,15 @@ final class ConstructorV2Test extends TestCase
 
         (new Constructor())->create(
             StrictBooleanObject::class,
-            'false',
+            ['value' => 'false'],
             new ConstructionOptions(ConstructionMode::STRICT),
         );
     }
 
     public function testCoerceModeParsesBooleanStrings(): void
     {
-        $false = (new Constructor())->create(StrictBooleanObject::class, 'false');
-        $true = (new Constructor())->create(StrictBooleanObject::class, 'true');
+        $false = (new Constructor())->create(StrictBooleanObject::class, ['value' => 'false']);
+        $true = (new Constructor())->create(StrictBooleanObject::class, ['value' => 'true']);
 
         self::assertFalse($false->value);
         self::assertTrue($true->value);
@@ -390,7 +390,7 @@ final class RequiredObject
 {
     public function __construct(
         public readonly string $value,
-        public readonly string $required,
+        public readonly string $other,
     ) {
     }
 }
@@ -409,17 +409,17 @@ final class StrictBooleanObject
     }
 }
 
+enum PersonType: string
+{
+    case PF = 'PF';
+    case PJ = 'PJ';
+}
+
 final class EnumObject
 {
     public function __construct(public readonly PersonType $value)
     {
     }
-}
-
-enum PersonType: string
-{
-    case PF = 'PF';
-    case PJ = 'PJ';
 }
 
 final class DateTimeObject
@@ -445,16 +445,7 @@ final class UnionObject
 
 final class UnionContainerObject
 {
-    public function __construct(
-        public readonly string $name,
-        public readonly int|ChildObject $value,
-    ) {
-    }
-}
-
-final class IntersectionObject
-{
-    public function __construct(public readonly IntersectionLeft&IntersectionRight $value)
+    public function __construct(public readonly ChildObject|string $value)
     {
     }
 }
@@ -462,6 +453,13 @@ final class IntersectionObject
 final class ChildObject
 {
     public function __construct(public readonly string $value)
+    {
+    }
+}
+
+final class IntersectionObject
+{
+    public function __construct(public readonly IntersectionLeft&IntersectionRight $value)
     {
     }
 }
@@ -483,7 +481,7 @@ final class PartialIntersectionValue implements IntersectionLeft
 }
 
 #[Collection(itemType: ChildObject::class)]
-final class ChildCollection
+final class CollectionContainerObject
 {
     /** @param list<ChildObject> $items */
     public function __construct(public readonly array $items)
@@ -491,15 +489,8 @@ final class ChildCollection
     }
 }
 
-final class CollectionContainerObject
-{
-    public function __construct(public readonly ChildCollection $items)
-    {
-    }
-}
-
 #[Factoryable(factory: FactoryObjectFactory::class)]
-final class FactoryProductValue
+final class FactoryProduct
 {
     public function __construct(public readonly string $value)
     {
@@ -508,27 +499,20 @@ final class FactoryProductValue
 
 final class FactoryContainerObject
 {
-    public function __construct(public readonly FactoryProductValue $value)
-    {
-    }
-}
-
-final class FactoryProduct
-{
-    public function __construct(public readonly string $value)
+    public function __construct(public readonly FactoryProduct $value)
     {
     }
 }
 
 final class FactoryObjectFactory
 {
-    public static function create(mixed $value): FactoryProductValue
+    public static function create(mixed $value): FactoryProduct
     {
-        if ($value instanceof FactoryProductValue) {
+        if ($value instanceof FactoryProduct) {
             return $value;
         }
 
-        return new FactoryProductValue('factory:' . (string) $value);
+        return new FactoryProduct((string) $value);
     }
 }
 
