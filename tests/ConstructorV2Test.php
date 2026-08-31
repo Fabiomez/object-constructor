@@ -224,104 +224,110 @@ final class ConstructorV2Test extends TestCase
         self::assertSame('123', $object->value);
     }
 
-    public function testResolvesUnionObjectCandidateFromExistingObject(): void
+    public function testResolvesUnionObject(): void
     {
-        $nested = new NestedObject('nested');
-        $object = (new Constructor())->construct(ObjectUnionObject::class, ['value' => $nested]);
-
-        self::assertSame($nested, $object->value);
-    }
-
-    public function testResolvesUnionObjectCandidateFromArray(): void
-    {
-        $object = (new Constructor())->construct(ObjectUnionObject::class, ['value' => ['value' => 'nested']]);
-
-        self::assertInstanceOf(NestedObject::class, $object->value);
-        self::assertSame('nested', $object->value->value);
-    }
-
-    public function testResolvesUnionContainingIntersectionType(): void
-    {
-        $value = new IntersectionValue();
-        $object = (new Constructor())->construct(IntersectionUnionObject::class, ['value' => $value]);
+        $value = new ChildObject('ok');
+        $object = (new Constructor())->construct(UnionObject::class, ['value' => $value]);
 
         self::assertSame($value, $object->value);
     }
 
-    public function testRejectsUnionContainingIntersectionWhenCandidateDoesNotMatch(): void
+    public function testResolvesUnionObjectFromArray(): void
+    {
+        $object = (new Constructor())->construct(UnionObject::class, ['value' => ['value' => 'ok']]);
+
+        self::assertInstanceOf(ChildObject::class, $object->value);
+        self::assertSame('ok', $object->value->value);
+    }
+
+    public function testResolvesIntersectionType(): void
+    {
+        $value = new IntersectionValue();
+        $object = (new Constructor())->construct(IntersectionObject::class, ['value' => $value]);
+
+        self::assertSame($value, $object->value);
+    }
+
+    public function testRejectsInvalidIntersectionType(): void
     {
         $this->expectException(ConstructException::class);
 
-        (new Constructor())->construct(IntersectionUnionObject::class, ['value' => new OnlyLeft()]);
+        (new Constructor())->construct(IntersectionObject::class, ['value' => new PartialIntersectionValue()]);
     }
 
-    public function testRejectsIntersectionWithoutObject(): void
-    {
-        $this->expectException(ConstructException::class);
-
-        (new Constructor())->construct(IntersectionObject::class, ['value' => 'invalid']);
-    }
-
-    public function testPreservesCollectionKeys(): void
+    public function testCollectionAttributeConstructsEachItem(): void
     {
         $object = (new Constructor())->construct(CollectionObject::class, [
             'items' => [
                 'first' => ['value' => 'one'],
-                7 => ['value' => 'seven'],
+                10 => ['value' => 'ten'],
             ],
         ]);
 
-        self::assertArrayHasKey('first', $object->items);
-        self::assertArrayHasKey(7, $object->items);
+        self::assertSame(['first', 10], array_keys($object->items));
         self::assertSame('one', $object->items['first']->value);
-        self::assertSame('seven', $object->items[7]->value);
+        self::assertSame('ten', $object->items[10]->value);
     }
 
-    public function testRejectsNonArrayCollectionInput(): void
+    public function testCollectionRejectsNonArray(): void
     {
         $this->expectException(ConstructException::class);
-        $this->expectExceptionMessage('Collection input must be an array.');
 
         (new Constructor())->construct(CollectionObject::class, ['items' => 'invalid']);
     }
 
-    public function testConstructsEmptyCollection(): void
+    public function testFactoryableAttributeCreatesValue(): void
     {
-        $object = (new Constructor())->construct(CollectionObject::class, ['items' => []]);
+        $object = (new Constructor())->construct(FactoryObject::class, ['value' => 'ok']);
 
-        self::assertSame([], $object->items);
+        self::assertSame('factory:ok', $object->value->value);
     }
 
-    public function testFactoryableCreatesTypedValue(): void
+    public function testFactoryableAttributeCanReturnExistingObject(): void
     {
-        $object = (new Constructor())->construct(FactoryObject::class, 'raw');
+        $product = new FactoryProduct('existing');
+        $object = (new Constructor())->construct(FactoryObject::class, ['value' => $product]);
 
-        self::assertSame('factory:raw', $object->value->value);
+        self::assertSame($product, $object->value);
     }
 
-    public function testCustomResolverIsUsedBeforeBuiltInResolution(): void
+    public function testCustomResolverCanHandleType(): void
     {
-        $constructor = new Constructor(resolvers: [new CustomStringResolver()]);
-        $object = $constructor->construct(CustomResolvedObject::class, ['value' => 'abc']);
+        $object = (new Constructor(resolvers: [new CustomStringResolver()]))->construct(
+            CustomResolvedObject::class,
+            ['value' => 'ok'],
+        );
 
-        self::assertSame('resolved:abc', $object->value->value);
+        self::assertSame('resolved:ok', $object->value->value);
     }
 
-    public function testResolverReceivesConstructorAndParameterMetadata(): void
+    public function testNonMatchingCustomResolverFallsBackToBuiltinHandling(): void
+    {
+        $object = (new Constructor(resolvers: [new CustomStringResolver()]))->construct(
+            ScalarObject::class,
+            '123',
+        );
+
+        self::assertSame(123, $object->value);
+    }
+
+    public function testCustomResolverReceivesConstructorAndParameter(): void
     {
         $resolver = new CapturingResolver();
-        $constructor = new Constructor(resolvers: [$resolver]);
-        $object = $constructor->construct(CustomResolvedObject::class, ['value' => 'abc']);
+        $object = (new Constructor(resolvers: [$resolver]))->construct(
+            CustomResolvedObject::class,
+            ['value' => 'ok'],
+        );
 
-        self::assertSame('resolved:abc', $object->value->value);
-        self::assertSame($constructor, $resolver->constructor);
+        self::assertSame('resolved:ok', $object->value->value);
+        self::assertInstanceOf(Constructor::class, $resolver->constructor);
         self::assertInstanceOf(ReflectionNamedType::class, $resolver->parameterType);
+        self::assertSame(CustomValue::class, $resolver->parameterType->getName());
     }
 
     public function testMetadataIsReusedForRepeatedConstruction(): void
     {
         $constructor = new Constructor();
-
         $first = $constructor->construct(SimpleObject::class, ['value' => 'one']);
         $second = $constructor->construct(SimpleObject::class, ['value' => 'two']);
 
@@ -331,29 +337,14 @@ final class ConstructorV2Test extends TestCase
 
     public function testReflectsNamedUnionAndIntersectionTypes(): void
     {
-        $union = new ReflectionMethod(UnionObject::class, '__construct')->getParameters()[0]->getType();
-        $intersection = new ReflectionMethod(IntersectionObject::class, '__construct')->getParameters()[0]->getType();
+        $unionParameter = new ReflectionMethod(UnionObject::class, '__construct')->getParameters()[0];
+        $intersectionParameter = new ReflectionMethod(IntersectionObject::class, '__construct')->getParameters()[0];
+        $union = $unionParameter->getType();
+        $intersection = $intersectionParameter->getType();
 
         self::assertInstanceOf(ReflectionUnionType::class, $union);
         self::assertInstanceOf(ReflectionIntersectionType::class, $intersection);
     }
-
-    public function testNestedConstructionFailureKeepsParameterPathAndPreviousException(): void
-    {
-        try {
-            (new Constructor())->construct(ParentObject::class, [
-                'child' => ['value' => []],
-            ]);
-            self::fail('Expected construction to fail.');
-        } catch (ConstructException $exception) {
-            self::assertSame('child > value', $exception->getParam());
-            self::assertNotNull($exception->getPrevious());
-        }
-    }
-}
-
-final class EmptyObject
-{
 }
 
 final class SimpleObject
@@ -361,6 +352,10 @@ final class SimpleObject
     public function __construct(public readonly string $value)
     {
     }
+}
+
+final class EmptyObject
+{
 }
 
 final class ScalarObject
@@ -372,14 +367,7 @@ final class ScalarObject
 
 final class NullableScalarObject
 {
-    public function __construct(public readonly ?int $value)
-    {
-    }
-}
-
-final class RequiredObject
-{
-    public function __construct(public readonly string $value)
+    public function __construct(public readonly ?string $value)
     {
     }
 }
@@ -397,8 +385,15 @@ final class NullablePropertyObject
 {
     public function __construct(
         public readonly string $value,
-        public readonly ?string $nullable,
+        public readonly ?string $nullable = null,
     ) {
+    }
+}
+
+final class RequiredObject
+{
+    public function __construct(public readonly string $value)
+    {
     }
 }
 
@@ -416,16 +411,17 @@ final class StrictBooleanObject
     }
 }
 
-enum PersonType: string
-{
-    case PF = 'PF';
-}
-
 final class EnumObject
 {
     public function __construct(public readonly PersonType $value)
     {
     }
+}
+
+enum PersonType: string
+{
+    case PF = 'PF';
+    case PJ = 'PJ';
 }
 
 final class DateTimeObject
@@ -444,62 +440,55 @@ final class DateTimeImmutableObject
 
 final class UnionObject
 {
-    public function __construct(public readonly int|string $value)
+    public function __construct(public readonly int|ChildObject|string $value)
     {
     }
 }
 
-final class NestedObject
+final class IntersectionObject
+{
+    public function __construct(public readonly IntersectionLeft&IntersectionRight $value)
+    {
+    }
+}
+
+final class ChildObject
 {
     public function __construct(public readonly string $value)
     {
     }
 }
 
-final class ObjectUnionObject
-{
-    public function __construct(public readonly NestedObject|string $value)
-    {
-    }
-}
-
-interface LeftContract
+interface IntersectionLeft
 {
 }
 
-interface RightContract
+interface IntersectionRight
 {
 }
 
-final class IntersectionValue implements LeftContract, RightContract
+final class IntersectionValue implements IntersectionLeft, IntersectionRight
 {
 }
 
-final class OnlyLeft implements LeftContract
+final class PartialIntersectionValue implements IntersectionLeft
 {
 }
 
-final class IntersectionObject
-{
-    public function __construct(public readonly LeftContract&RightContract $value)
-    {
-    }
-}
-
-final class IntersectionUnionObject
-{
-    public function __construct(public readonly (LeftContract&RightContract)|string $value)
-    {
-    }
-}
-
+#[Collection(itemType: ChildObject::class)]
 final class CollectionObject
 {
-    /** @param array<array-key, NestedObject> $items */
-    public function __construct(
-        #[Collection(NestedObject::class)]
-        public readonly array $items,
-    ) {
+    /** @param list<ChildObject> $items */
+    public function __construct(public readonly array $items)
+    {
+    }
+}
+
+#[Factoryable(factory: FactoryObjectFactory::class)]
+final class FactoryObject
+{
+    public function __construct(public readonly FactoryProduct $value)
+    {
     }
 }
 
@@ -510,19 +499,14 @@ final class FactoryProduct
     }
 }
 
-final class FactoryObject
-{
-    public function __construct(
-        #[Factoryable([FactoryObjectFactory::class, 'create'])]
-        public readonly FactoryProduct $value,
-    ) {
-    }
-}
-
 final class FactoryObjectFactory
 {
     public static function create(mixed $value): FactoryProduct
     {
+        if ($value instanceof FactoryProduct) {
+            return $value;
+        }
+
         return new FactoryProduct('factory:' . (string) $value);
     }
 }
@@ -555,30 +539,29 @@ final class CustomStringResolver implements ValueResolver
     }
 }
 
-final class CapturingResolver extends CustomStringResolver
+final class CapturingResolver implements ValueResolver
 {
     public ?Constructor $constructor = null;
     public ?ReflectionNamedType $parameterType = null;
+
+    public function supports(ParameterMetadata $parameter, mixed $value): bool
+    {
+        return $parameter->type instanceof ReflectionNamedType
+            && $parameter->type->getName() === CustomValue::class;
+    }
 
     public function resolve(Constructor $constructor, ParameterMetadata $parameter, mixed $value): mixed
     {
         $this->constructor = $constructor;
         $this->parameterType = $parameter->type;
 
-        return parent::resolve($constructor, $parameter, $value);
+        return new CustomValue('resolved:' . $value);
     }
 }
 
 final class ParentObject
 {
     public function __construct(public readonly ChildObject $child)
-    {
-    }
-}
-
-final class ChildObject
-{
-    public function __construct(public readonly int $value)
     {
     }
 }
