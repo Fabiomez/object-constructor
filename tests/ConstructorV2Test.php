@@ -25,7 +25,7 @@ final class ConstructorV2Test extends TestCase
 {
     public function testCreateAliasConstructsObject(): void
     {
-        $object = (new Constructor())->create(SimpleObject::class, ['value' => 'ok']);
+        $object = (new Constructor())->create(SimpleObject::class, 'ok');
 
         self::assertInstanceOf(SimpleObject::class, $object);
         self::assertSame('ok', $object->value);
@@ -86,7 +86,7 @@ final class ConstructorV2Test extends TestCase
         $this->expectException(ConstructException::class);
         $this->expectExceptionMessage('Required constructor parameter is missing.');
 
-        (new Constructor())->construct(RequiredObject::class, []);
+        (new Constructor())->construct(RequiredObject::class, ['value' => 'ok']);
     }
 
     public function testUnknownPropertiesAreIgnoredByDefault(): void
@@ -116,7 +116,7 @@ final class ConstructorV2Test extends TestCase
     {
         $object = (new Constructor())->create(
             StrictObject::class,
-            ['value' => 123],
+            123,
             new ConstructionOptions(ConstructionMode::STRICT),
         );
 
@@ -129,7 +129,7 @@ final class ConstructorV2Test extends TestCase
 
         (new Constructor())->create(
             StrictObject::class,
-            ['value' => '123'],
+            '123',
             new ConstructionOptions(ConstructionMode::STRICT),
         );
     }
@@ -140,15 +140,15 @@ final class ConstructorV2Test extends TestCase
 
         (new Constructor())->create(
             StrictBooleanObject::class,
-            ['value' => 'false'],
+            'false',
             new ConstructionOptions(ConstructionMode::STRICT),
         );
     }
 
     public function testCoerceModeParsesBooleanStrings(): void
     {
-        $false = (new Constructor())->create(StrictBooleanObject::class, ['value' => 'false']);
-        $true = (new Constructor())->create(StrictBooleanObject::class, ['value' => 'true']);
+        $false = (new Constructor())->create(StrictBooleanObject::class, 'false');
+        $true = (new Constructor())->create(StrictBooleanObject::class, 'true');
 
         self::assertFalse($false->value);
         self::assertTrue($true->value);
@@ -156,7 +156,7 @@ final class ConstructorV2Test extends TestCase
 
     public function testSupportsBackedEnum(): void
     {
-        $object = (new Constructor())->construct(EnumObject::class, ['value' => 'PF']);
+        $object = (new Constructor())->construct(EnumObject::class, 'PF');
 
         self::assertSame(PersonType::PF, $object->value);
     }
@@ -165,14 +165,12 @@ final class ConstructorV2Test extends TestCase
     {
         $this->expectException(\ValueError::class);
 
-        (new Constructor())->construct(EnumObject::class, ['value' => 'INVALID']);
+        (new Constructor())->construct(EnumObject::class, 'INVALID');
     }
 
     public function testSupportsDateTime(): void
     {
-        $object = (new Constructor())->construct(DateTimeObject::class, [
-            'value' => '2026-08-24T12:00:00+00:00',
-        ]);
+        $object = (new Constructor())->construct(DateTimeObject::class, '2026-08-24T12:00:00+00:00');
 
         self::assertInstanceOf(DateTime::class, $object->value);
         self::assertSame('2026-08-24T12:00:00+00:00', $object->value->format(DateTime::ATOM));
@@ -180,16 +178,14 @@ final class ConstructorV2Test extends TestCase
 
     public function testSupportsDateTimeImmutable(): void
     {
-        $object = (new Constructor())->construct(DateTimeImmutableObject::class, [
-            'value' => '2026-08-24T12:00:00+00:00',
-        ]);
+        $object = (new Constructor())->construct(DateTimeImmutableObject::class, '2026-08-24T12:00:00+00:00');
 
         self::assertInstanceOf(DateTimeImmutable::class, $object->value);
     }
 
     public function testSupportsDateTimeFromTimestamp(): void
     {
-        $object = (new Constructor())->construct(DateTimeImmutableObject::class, ['value' => 0]);
+        $object = (new Constructor())->construct(DateTimeImmutableObject::class, 0);
 
         self::assertSame('1970-01-01T00:00:00+00:00', $object->value->format(DateTime::ATOM));
     }
@@ -197,7 +193,7 @@ final class ConstructorV2Test extends TestCase
     public function testSupportsExistingDateTimeInterfaceValue(): void
     {
         $date = new DateTimeImmutable('2026-08-24T12:00:00+00:00');
-        $object = (new Constructor())->construct(DateTimeObject::class, ['value' => $date]);
+        $object = (new Constructor())->construct(DateTimeObject::class, $date);
 
         self::assertInstanceOf(DateTime::class, $object->value);
         self::assertSame($date->format(DateTime::ATOM), $object->value->format(DateTime::ATOM));
@@ -207,19 +203,19 @@ final class ConstructorV2Test extends TestCase
     {
         $this->expectException(ConstructException::class);
 
-        (new Constructor())->construct(DateTimeObject::class, ['value' => []]);
+        (new Constructor())->construct(DateTimeObject::class, []);
     }
 
     public function testResolvesUnionScalarWithoutConversion(): void
     {
-        $object = (new Constructor())->construct(UnionObject::class, ['value' => 123]);
+        $object = (new Constructor())->construct(UnionObject::class, 123);
 
         self::assertSame(123, $object->value);
     }
 
     public function testResolvesUnionStringWithoutConversion(): void
     {
-        $object = (new Constructor())->construct(UnionObject::class, ['value' => '123']);
+        $object = (new Constructor())->construct(UnionObject::class, '123');
 
         self::assertSame('123', $object->value);
     }
@@ -227,14 +223,14 @@ final class ConstructorV2Test extends TestCase
     public function testResolvesUnionObject(): void
     {
         $value = new ChildObject('ok');
-        $object = (new Constructor())->construct(UnionObject::class, ['value' => $value]);
+        $object = (new Constructor())->construct(UnionObject::class, $value);
 
         self::assertSame($value, $object->value);
     }
 
     public function testResolvesUnionObjectFromArray(): void
     {
-        $object = (new Constructor())->construct(UnionObject::class, ['value' => ['value' => 'ok']]);
+        $object = (new Constructor())->construct(UnionObject::class, ['value' => 'ok']);
 
         self::assertInstanceOf(ChildObject::class, $object->value);
         self::assertSame('ok', $object->value->value);
@@ -243,7 +239,7 @@ final class ConstructorV2Test extends TestCase
     public function testResolvesIntersectionType(): void
     {
         $value = new IntersectionValue();
-        $object = (new Constructor())->construct(IntersectionObject::class, ['value' => $value]);
+        $object = (new Constructor())->construct(IntersectionObject::class, $value);
 
         self::assertSame($value, $object->value);
     }
@@ -252,16 +248,14 @@ final class ConstructorV2Test extends TestCase
     {
         $this->expectException(ConstructException::class);
 
-        (new Constructor())->construct(IntersectionObject::class, ['value' => new PartialIntersectionValue()]);
+        (new Constructor())->construct(IntersectionObject::class, new PartialIntersectionValue());
     }
 
     public function testCollectionAttributeConstructsEachItem(): void
     {
         $object = (new Constructor())->construct(CollectionObject::class, [
-            'items' => [
-                'first' => ['value' => 'one'],
-                10 => ['value' => 'ten'],
-            ],
+            'first' => ['value' => 'one'],
+            10 => ['value' => 'ten'],
         ]);
 
         self::assertSame(['first', 10], array_keys($object->items));
@@ -273,12 +267,12 @@ final class ConstructorV2Test extends TestCase
     {
         $this->expectException(ConstructException::class);
 
-        (new Constructor())->construct(CollectionObject::class, ['items' => 'invalid']);
+        (new Constructor())->construct(CollectionObject::class, 'invalid');
     }
 
     public function testFactoryableAttributeCreatesValue(): void
     {
-        $object = (new Constructor())->construct(FactoryObject::class, ['value' => 'ok']);
+        $object = (new Constructor())->construct(FactoryObject::class, 'ok');
 
         self::assertSame('factory:ok', $object->value->value);
     }
@@ -286,7 +280,7 @@ final class ConstructorV2Test extends TestCase
     public function testFactoryableAttributeCanReturnExistingObject(): void
     {
         $product = new FactoryProduct('existing');
-        $object = (new Constructor())->construct(FactoryObject::class, ['value' => $product]);
+        $object = (new Constructor())->construct(FactoryObject::class, $product);
 
         self::assertSame($product, $object->value);
     }
@@ -295,7 +289,7 @@ final class ConstructorV2Test extends TestCase
     {
         $object = (new Constructor(resolvers: [new CustomStringResolver()]))->construct(
             CustomResolvedObject::class,
-            ['value' => 'ok'],
+            'ok',
         );
 
         self::assertSame('resolved:ok', $object->value->value);
@@ -316,7 +310,7 @@ final class ConstructorV2Test extends TestCase
         $resolver = new CapturingResolver();
         $object = (new Constructor(resolvers: [$resolver]))->construct(
             CustomResolvedObject::class,
-            ['value' => 'ok'],
+            'ok',
         );
 
         self::assertSame('resolved:ok', $object->value->value);
@@ -328,8 +322,8 @@ final class ConstructorV2Test extends TestCase
     public function testMetadataIsReusedForRepeatedConstruction(): void
     {
         $constructor = new Constructor();
-        $first = $constructor->construct(SimpleObject::class, ['value' => 'one']);
-        $second = $constructor->construct(SimpleObject::class, ['value' => 'two']);
+        $first = $constructor->construct(SimpleObject::class, 'one');
+        $second = $constructor->construct(SimpleObject::class, 'two');
 
         self::assertSame('one', $first->value);
         self::assertSame('two', $second->value);
@@ -392,8 +386,10 @@ final class NullablePropertyObject
 
 final class RequiredObject
 {
-    public function __construct(public readonly string $value)
-    {
+    public function __construct(
+        public readonly string $value,
+        public readonly string $required,
+    ) {
     }
 }
 
