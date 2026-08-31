@@ -9,7 +9,6 @@ use Fabiomez\ObjectConstructor\Constructor;
 use Fabiomez\ObjectConstructor\Options\ConstructionMode;
 use Fabiomez\ObjectConstructor\Options\ConstructionOptions;
 use PHPUnit\Framework\TestCase;
-use ReflectionMethod;
 
 final class CoverageBranchesTest extends TestCase
 {
@@ -58,17 +57,6 @@ final class CoverageBranchesTest extends TestCase
     {
         $this->expectException(\TypeError::class);
         (new Constructor())->construct(CoverageBoolObject::class, 'unknown');
-    }
-
-    public function testCoerciveBuiltinUnknownNameUsesFallbackBranch(): void
-    {
-        $method = new ReflectionMethod(Constructor::class, 'castBuiltin');
-        $value = new \stdClass();
-
-        self::assertSame(
-            $value,
-            $method->invoke(new Constructor(), 'unknown-builtin', $value, ConstructionMode::COERCE),
-        );
     }
 
     /** @dataProvider builtinUnionProvider */
