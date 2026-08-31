@@ -287,6 +287,9 @@ final class Constructor
             throw new ConstructException('', 'Intersection types require an object instance.');
         }
         foreach ($type->getTypes() as $candidate) {
+            if (!$candidate instanceof ReflectionNamedType) {
+                throw new ConstructException('', 'Unsupported intersection member type.');
+            }
             $name = $candidate->getName();
             if (!$value instanceof $name) {
                 throw new ConstructException('', "Object does not satisfy {$name}.");
