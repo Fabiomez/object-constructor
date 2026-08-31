@@ -188,7 +188,10 @@ final class ConstructorV2Test extends TestCase
 
     public function testResolvesUnionObjectFromArray(): void
     {
-        $object = (new Constructor())->construct(UnionContainerObject::class, ['value' => ['value' => 'ok']]);
+        $object = (new Constructor())->construct(UnionContainerObject::class, [
+            'value' => ['value' => 'ok'],
+            'marker' => true,
+        ]);
         self::assertInstanceOf(ChildObject::class, $object->value);
         self::assertSame('ok', $object->value->value);
     }
@@ -299,10 +302,8 @@ interface IntersectionLeft {}
 interface IntersectionRight {}
 final class IntersectionValue implements IntersectionLeft, IntersectionRight {}
 final class PartialIntersectionValue implements IntersectionLeft {}
-#[Collection(itemType: ChildObject::class)]
-final class CollectionContainerObject { public function __construct(public readonly array $items) {} }
-#[Factoryable(factory: [FactoryObjectFactory::class, 'create'])]
-final class FactoryProduct { public function __construct(public readonly string $value) {} }
+#[Collection(itemType: ChildObject::class)] final class CollectionContainerObject { public function __construct(public readonly array $items) {} }
+#[Factoryable(factory: [FactoryObjectFactory::class, 'create'])] final class FactoryProduct { public function __construct(public readonly string $value) {} }
 final class FactoryContainerObject { public function __construct(public readonly FactoryProduct $value) {} }
 final class FactoryObjectFactory { public static function create(mixed $value): FactoryProduct { if ($value instanceof FactoryProduct) return $value; return new FactoryProduct('factory:' . (string) $value); } }
 final class CustomResolvedObject { public function __construct(public readonly CustomValue $value) {} }
