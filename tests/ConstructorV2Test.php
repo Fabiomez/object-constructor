@@ -118,8 +118,10 @@ final class ConstructorV2Test extends TestCase
 
     public function testCoerceModeParsesBooleanStrings(): void
     {
-        self::assertFalse((new Constructor())->create(StrictBooleanObject::class, 'false')->value);
-        self::assertTrue((new Constructor())->create(StrictBooleanObject::class, 'true')->value);
+        $falseObject = (new Constructor())->create(StrictBooleanObject::class, 'false');
+        $trueObject = (new Constructor())->create(StrictBooleanObject::class, 'true');
+        self::assertFalse($falseObject->value);
+        self::assertTrue($trueObject->value);
     }
 
     public function testSupportsBackedEnum(): void
