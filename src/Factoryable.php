@@ -12,13 +12,12 @@ final class Factoryable
 {
     private Closure $factory;
 
-    public function __construct(
-        callable $factory
-    ) {
+    public function __construct(callable $factory)
+    {
         $this->factory = Closure::fromCallable($factory);
     }
 
-    public function create($inputData): mixed
+    public function create(mixed $inputData): mixed
     {
         $factory = $this->factory;
         return $factory($inputData);

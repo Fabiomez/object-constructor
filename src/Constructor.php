@@ -5,168 +5,341 @@ declare(strict_types=1);
 namespace Fabiomez\ObjectConstructor;
 
 use BackedEnum;
-use Exception;
-use RuntimeException;
+use DateTime;
+use DateTimeImmutable;
+use DateTimeInterface;
+use DateTimeZone;
+use Fabiomez\ObjectConstructor\Metadata\ClassMetadata;
+use Fabiomez\ObjectConstructor\Metadata\MetadataCache;
+use Fabiomez\ObjectConstructor\Metadata\ParameterMetadata;
+use Fabiomez\ObjectConstructor\Options\ConstructionMode;
+use Fabiomez\ObjectConstructor\Options\ConstructionOptions;
+use Fabiomez\ObjectConstructor\Options\UnknownPropertyHandling;
+use Fabiomez\ObjectConstructor\Resolver\ValueResolver;
 use ReflectionAttribute;
 use ReflectionClass;
 use ReflectionException;
 use ReflectionIntersectionType;
-use ReflectionMethod;
 use ReflectionNamedType;
-use ReflectionParameter;
+use ReflectionType;
 use ReflectionUnionType;
-use function count;
-use function is_a;
-use function is_array;
-use function is_numeric;
+use Throwable;
 
-class Constructor
+final class Constructor
 {
-    /**
-     * @throws ReflectionException
-     */
-    public function construct(string $className, mixed $inputData): Object
-    {
-        $parameters = (new ReflectionMethod($className, '__construct'))->getParameters();
+    /** @param list<ValueResolver> $resolvers */
+    public function __construct(
+        private readonly MetadataCache $metadata = new MetadataCache(),
+        private readonly array $resolvers = [],
+    ) {
+    }
 
-        if (!is_array($inputData) || count($parameters) === 1) {
-            return $this->constructSingleValueObject($className, $parameters[0], $inputData);
+    /** @throws ReflectionException */
+    public function create(string $className, mixed $inputData, ?ConstructionOptions $options = null): object
+    {
+        return $this->construct($className, $inputData, $options);
+    }
+
+    /** @throws ReflectionException */
+    public function construct(string $className, mixed $inputData, ?ConstructionOptions $options = null): object
+    {
+        $options ??= new ConstructionOptions();
+        $classMetadata = $this->metadata->get($className);
+
+        if ($classMetadata->parameters === []) {
+            if ($inputData !== [] && $inputData !== null) {
+                throw new ConstructException('', "Class {$className} does not accept constructor arguments.");
+            }
+            return new $className();
         }
 
-        return $this->constructMultiValueObject($className, $parameters, $inputData);
+        if (!is_array($inputData) || count($classMetadata->parameters) === 1) {
+            return $this->constructSingleValueObject($className, $classMetadata->parameters[0], $inputData, $options);
+        }
+
+        return $this->constructMultiValueObject($className, $classMetadata, $inputData, $options);
+    }
+
+    /** @throws ReflectionException */
+    private function constructSingleValueObject(
+        string $className,
+        ParameterMetadata $parameter,
+        mixed $inputData,
+        ConstructionOptions $options,
+    ): object {
+        return new $className($this->constructParameterValue($parameter, $inputData, $options));
     }
 
     /**
+     * @param array<array-key, mixed> $inputData
      * @throws ReflectionException
      */
-    private function constructSingleValueObject(string $className, ReflectionParameter $parameter, $inputData): mixed
-    {
-        return new $className($this->constructParameterValue($parameter, $inputData));
-    }
-
-    private function constructMultiValueObject(string $className, array $parameters, array $inputData)
-    {
-        $builtConstructorParams = [];
-        /** @var ReflectionParameter $parameter */
-        foreach ($parameters as $parameter) {
-            try {
-                $builtConstructorParams[$parameter->getName()] = isset($inputData[$parameter->getName()])
-                    ? $this->constructParameterValue($parameter,$inputData[$parameter->getName()])
-                    : $this->getParameterDefaultValueOrNull($parameter);
-            } catch (ConstructException $exception) {
-                throw new ConstructException(
-                    "{$parameter->getName()} > {$exception->getParam()}",
-                    $exception->getMessage()
-                );
-            } catch (Exception|\Error $exception) {
-                throw new ConstructException(
-                    $parameter->getName(),
-                    $exception->getMessage()
-                );
+    private function constructMultiValueObject(
+        string $className,
+        ClassMetadata $classMetadata,
+        array $inputData,
+        ConstructionOptions $options,
+    ): object {
+        if ($options->unknownProperties === UnknownPropertyHandling::FAIL) {
+            $known = array_map(static fn (ParameterMetadata $parameter): string => $parameter->name, $classMetadata->parameters);
+            $unknown = array_diff(array_keys($inputData), $known);
+            if ($unknown !== []) {
+                throw new ConstructException((string) reset($unknown), 'Unknown constructor property.');
             }
         }
 
-        return new $className(...$builtConstructorParams);;
-    }
-
-    private function getParameterDefaultValueOrNull(ReflectionParameter $parameter): mixed
-    {
-        if ($parameter->isDefaultValueAvailable()) {
-            return $parameter->getDefaultValue();
+        $arguments = [];
+        foreach ($classMetadata->parameters as $parameter) {
+            try {
+                $arguments[$parameter->name] = array_key_exists($parameter->name, $inputData)
+                    ? $this->constructParameterValue($parameter, $inputData[$parameter->name], $options)
+                    : $this->getMissingParameterValue($parameter);
+            } catch (ConstructException $exception) {
+                throw new ConstructException(
+                    $parameter->name . ($exception->getParam() !== '' ? " > {$exception->getParam()}" : ''),
+                    $exception->getMessage(),
+                    $exception,
+                );
+            } catch (Throwable $exception) {
+                throw new ConstructException($parameter->name, $exception->getMessage(), $exception);
+            }
         }
 
-        if ($parameter->allowsNull()) {
+        return new $className(...$arguments);
+    }
+
+    private function getMissingParameterValue(ParameterMetadata $parameter): mixed
+    {
+        if ($parameter->hasDefault) {
+            return $parameter->defaultValue;
+        }
+        if ($parameter->allowsNull) {
+            return null;
+        }
+        throw new ConstructException($parameter->name, 'Required constructor parameter is missing.');
+    }
+
+    /** @throws ReflectionException */
+    private function constructParameterValue(ParameterMetadata $parameter, mixed $value, ConstructionOptions $options): mixed
+    {
+        foreach ($this->resolvers as $resolver) {
+            if ($resolver->supports($parameter, $value)) {
+                return $resolver->resolve($this, $parameter, $value);
+            }
+        }
+
+        if ($value === null && $parameter->allowsNull) {
             return null;
         }
 
-        throw new RuntimeException('Nom optional parameter not set.');
+        $type = $parameter->type;
+        if ($type === null) {
+            return $value;
+        }
+        if ($type instanceof ReflectionNamedType) {
+            return $this->constructNamedType($type, $value, $options);
+        }
+        if ($type instanceof ReflectionUnionType) {
+            return $this->constructUnionType($type, $value, $options);
+        }
+        if ($type instanceof ReflectionIntersectionType) {
+            return $this->constructIntersectionType($type, $value);
+        }
+
+        throw new ConstructException('', 'Unsupported reflection type.');
     }
 
-    /**
-     * @throws ReflectionException
-     */
-    private function constructParameterValue(ReflectionParameter $parameter, $value): mixed
+    /** @throws ReflectionException */
+    private function constructNamedType(ReflectionNamedType $type, mixed $value, ConstructionOptions $options): mixed
     {
-        $type = $parameter->getType();
-
-        if (!$type) {
+        $name = $type->getName();
+        if ($name === 'mixed') {
+            return $value;
+        }
+        if ($type->isBuiltin()) {
+            return $this->castBuiltin($name, $value, $options->mode);
+        }
+        if (is_a($name, BackedEnum::class, true)) {
+            return $name::from($value);
+        }
+        if ($name === DateTime::class) {
+            return $this->constructDateTime($value, false);
+        }
+        if ($name === DateTimeImmutable::class) {
+            return $this->constructDateTime($value, true);
+        }
+        if (is_object($value) && $value instanceof $name) {
             return $value;
         }
 
-        if ($type instanceof ReflectionNamedType) {
-            return $this->constructReflectionNamedTypeParameterValue($type, $value);
+        /** @var class-string<object> $name */
+        $reflection = new ReflectionClass($name);
+        $factory = $reflection->getAttributes(Factoryable::class)[0] ?? null;
+        if ($factory !== null) {
+            return $factory->newInstance()->create($value);
         }
 
-        if ($type instanceof ReflectionUnionType) {
-            return $this->extractReflectionUnionTypeParamValue($type, $value);
+        $collection = $reflection->getAttributes(Collection::class)[0] ?? null;
+        if ($collection !== null) {
+            if (!is_array($value)) {
+                throw new ConstructException('', 'Collection input must be an array.');
+            }
+            $value = $this->constructCollectionItems($collection, $value, $options);
         }
 
-        return $this->extractReflectionIntersectionTypeParamValue($type, $value);
+        return $this->construct($name, $value, $options);
     }
 
-    private function castValue(ReflectionNamedType $type, mixed $value): mixed
+    private function castBuiltin(string $name, mixed $value, ConstructionMode $mode): mixed
     {
-        return match ($type->getName()) {
+        if ($mode === ConstructionMode::STRICT) {
+            $valid = match ($name) {
+                'int' => is_int($value),
+                'float' => is_float($value) || is_int($value),
+                'string' => is_string($value),
+                'bool' => is_bool($value),
+                'array' => is_array($value),
+                'object' => is_object($value),
+                'iterable' => is_iterable($value),
+                'callable' => is_callable($value),
+                'null' => $value === null,
+                default => true,
+            };
+            if (!$valid) {
+                throw new ConstructException('', "Value is not compatible with {$name}.");
+            }
+            return $value;
+        }
+
+        return match ($name) {
             'int' => is_numeric($value) ? (int) $value : $value,
             'float' => is_numeric($value) ? (float) $value : $value,
-            'string' => (string) $value,
-            'bool' => (bool) $value,
-            default => $value
+            'string' => is_scalar($value) || $value instanceof \Stringable ? (string) $value : $value,
+            'bool' => is_string($value) ? filter_var($value, FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) ?? $value : (bool) $value,
+            default => $value,
         };
     }
 
+    /** @throws ReflectionException */
+    private function constructUnionType(ReflectionUnionType $type, mixed $value, ConstructionOptions $options): mixed
+    {
+        $candidates = $type->getTypes();
+
+        foreach ($candidates as $candidate) {
+            if (!$candidate instanceof ReflectionNamedType) {
+                continue;
+            }
+            $name = $candidate->getName();
+            if (!$candidate->isBuiltin() && is_object($value) && $value instanceof $name) {
+                return $value;
+            }
+            if ($candidate->isBuiltin() && $this->isCompatibleBuiltin($name, $value)) {
+                return $this->castBuiltin($name, $value, $options->mode);
+            }
+        }
+
+        $errors = [];
+        foreach ($candidates as $candidate) {
+            $candidateName = $this->describeReflectionType($candidate);
+            try {
+                return $this->constructUnionCandidate($candidate, $value, $options);
+            } catch (Throwable $exception) {
+                $errors[] = $candidateName . ': ' . $exception->getMessage();
+            }
+        }
+
+        throw new ConstructException('', 'Unable to resolve union type. ' . implode(' | ', $errors));
+    }
+
+    /** @throws ReflectionException */
+    private function constructUnionCandidate(ReflectionType $candidate, mixed $value, ConstructionOptions $options): mixed
+    {
+        if ($candidate instanceof ReflectionNamedType) {
+            return $this->constructNamedType($candidate, $value, $options);
+        }
+
+        if ($candidate instanceof ReflectionIntersectionType) {
+            return $this->constructIntersectionType($candidate, $value);
+        }
+
+        throw new ConstructException('', 'Unsupported union member type.');
+    }
+
+    private function isCompatibleBuiltin(string $name, mixed $value): bool
+    {
+        return match ($name) {
+            'int' => is_int($value),
+            'float' => is_float($value) || is_int($value),
+            'string' => is_string($value),
+            'bool' => is_bool($value),
+            'array' => is_array($value),
+            'object' => is_object($value),
+            'iterable' => is_iterable($value),
+            'callable' => is_callable($value),
+            'mixed' => true,
+            default => false,
+        };
+    }
+
+    private function constructIntersectionType(ReflectionIntersectionType $type, mixed $value): object
+    {
+        if (!is_object($value)) {
+            throw new ConstructException('', 'Intersection types require an object instance.');
+        }
+        foreach ($type->getTypes() as $candidate) {
+            if (!$candidate instanceof ReflectionNamedType) {
+                throw new ConstructException('', 'Unsupported intersection member type.');
+            }
+            $name = $candidate->getName();
+            if (!$value instanceof $name) {
+                throw new ConstructException('', "Object does not satisfy {$name}.");
+            }
+        }
+        return $value;
+    }
+
+    private function describeReflectionType(ReflectionType $type): string
+    {
+        if ($type instanceof ReflectionNamedType) {
+            return $type->getName();
+        }
+        return (string) $type;
+    }
+
+    private function constructDateTime(mixed $value, bool $immutable): DateTimeInterface
+    {
+        $className = $immutable ? DateTimeImmutable::class : DateTime::class;
+        if ($value instanceof DateTimeInterface) {
+            return $value instanceof $className ? $value : new $className($value->format(DateTimeInterface::ATOM));
+        }
+        if (!is_string($value) && !is_numeric($value)) {
+            throw new ConstructException('', 'DateTime input must be a string, timestamp or DateTimeInterface.');
+        }
+        if (is_numeric($value)) {
+            if ($immutable) {
+                $date = new DateTimeImmutable('@' . $value);
+                return $date->setTimezone(new DateTimeZone(date_default_timezone_get()));
+            }
+            $date = new DateTime('@' . $value);
+            $date->setTimezone(new DateTimeZone(date_default_timezone_get()));
+            return $date;
+        }
+        return new $className($value);
+    }
+
     /**
-     * @throws ReflectionException
+     * @param ReflectionAttribute<Collection> $attribute
+     * @param array<array-key, mixed> $items
+     * @return array<array-key, mixed>
      */
-    private function constructReflectionNamedTypeParameterValue(ReflectionNamedType $type, mixed $value): mixed
+    private function constructCollectionItems(ReflectionAttribute $attribute, array $items, ConstructionOptions $options): array
     {
-        if (is_a($type->getName(), BackedEnum::class, true)) {
-            return $type->getName()::from($value);
-        }
-
-        if ($type->isBuiltin()) {
-            return $this->castValue($type, $value);
-        }
-
-        $factoryableAttribute = (new ReflectionClass($type->getName()))
-            ->getAttributes(Factoryable::class)[0] ?? false;
-        if ($factoryableAttribute) {
-            return $factoryableAttribute->newInstance()->create($value);
-        }
-
-        $collectionAttribute = (new ReflectionClass($type->getName()))
-            ->getAttributes(Collection::class)[0] ?? false;
-        if ($collectionAttribute) {
-            $value = $this->constructCollectionItems($collectionAttribute, $value);
-        }
-
-        return $this->construct($type->getName(), $value);
-    }
-
-    private function extractReflectionUnionTypeParamValue(ReflectionUnionType $type, $value): mixed
-    {
-        throw new RuntimeException('No implementation to deal with ReflectionUnionType');
-    }
-
-    private function extractReflectionIntersectionTypeParamValue(ReflectionIntersectionType $type, mixed $value): mixed
-    {
-        throw new RuntimeException('No implementation to deal with ReflectionIntersectionType');
-    }
-
-    /**
-     * @throws ReflectionException
-     */
-    private function constructCollectionItems(
-        ReflectionAttribute $attribute,
-        array $items
-    ): array {
+        /** @var class-string<object> $itemClassName */
         $itemClassName = $attribute->newInstance()->itemType;
-
         $builtItems = [];
-        foreach ($items as $item) {
-            $builtItems[] = $this->construct($itemClassName, $item);
+        foreach ($items as $key => $item) {
+            $builtItems[$key] = $this->construct($itemClassName, $item, $options);
         }
-
         return $builtItems;
     }
 }
