@@ -6,7 +6,7 @@ namespace Fabiomez\ObjectConstructor;
 
 use Attribute;
 
-#[Attribute]
+#[Attribute(Attribute::TARGET_CLASS)]
 final class Collection
 {
     public function __construct(

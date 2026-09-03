@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace Tests\Stubs;
 
-use Fabiomez\ObjectConstructor\Factoryable;
+use Fabiomez\ObjectConstructor\Buildable;
 
-#[Factoryable([VehicleFactory::class, 'make'])]
+#[Buildable([VehicleFactory::class, 'make'])]
 interface Vehicle
 {
 

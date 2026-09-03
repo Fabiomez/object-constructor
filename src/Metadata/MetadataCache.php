@@ -29,12 +29,12 @@ final class MetadataCache
 
         foreach ($parameters as $parameter) {
             $metadata[] = new ParameterMetadata(
-                $parameter->getName(),
-                $parameter->getType(),
-                $parameter->allowsNull(),
-                $parameter->isDefaultValueAvailable(),
-                $parameter->isDefaultValueAvailable() ? $parameter->getDefaultValue() : null,
-                $parameter,
+                name: $parameter->getName(),
+                type: $parameter->getType(),
+                allowsNull: $parameter->allowsNull(),
+                hasDefault: $parameter->isDefaultValueAvailable(),
+                defaultValue: $parameter->isDefaultValueAvailable() ? $parameter->getDefaultValue() : null,
+                reflection: $parameter,
             );
         }
 

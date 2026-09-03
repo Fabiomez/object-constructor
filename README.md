@@ -18,7 +18,7 @@ Construct typed PHP objects from structured arrays and scalar values using const
 ## Usage
 
 ```php
-use Fabiomez\ObjectConstructor\Constructor;
+use Fabiomez\ObjectConstructor\Builders;
 
 $constructor = new Constructor();
 

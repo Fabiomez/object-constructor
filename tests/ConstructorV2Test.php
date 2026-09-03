@@ -9,7 +9,6 @@ use DateTimeImmutable;
 use Fabiomez\ObjectConstructor\Collection;
 use Fabiomez\ObjectConstructor\ConstructException;
 use Fabiomez\ObjectConstructor\Constructor;
-use Fabiomez\ObjectConstructor\Factoryable;
 use Fabiomez\ObjectConstructor\Metadata\ParameterMetadata;
 use Fabiomez\ObjectConstructor\Options\ConstructionMode;
 use Fabiomez\ObjectConstructor\Options\ConstructionOptions;
@@ -214,10 +213,8 @@ final class ConstructorV2Test extends TestCase
     public function testCollectionAttributeConstructsEachItem(): void
     {
         $object = (new Constructor())->construct(CollectionContainerObject::class, [
-            'items' => [
-                'first' => ['value' => 'one'],
-                10 => ['value' => 'ten'],
-            ],
+            'first' => ['value' => 'one'],
+            10 => ['value' => 'ten'],
         ]);
         self::assertSame(['first', 10], array_keys($object->items));
         self::assertSame('one', $object->items['first']->value);
@@ -276,8 +273,8 @@ final class ConstructorV2Test extends TestCase
 
     public function testReflectsNamedUnionAndIntersectionTypes(): void
     {
-        $unionParameter = new ReflectionMethod(UnionObject::class, '__construct')->getParameters()[0];
-        $intersectionParameter = new ReflectionMethod(IntersectionObject::class, '__construct')->getParameters()[0];
+        $unionParameter = (new ReflectionMethod(UnionObject::class, '__construct'))->getParameters()[0];
+        $intersectionParameter = (new ReflectionMethod(IntersectionObject::class, '__construct'))->getParameters()[0];
         self::assertInstanceOf(ReflectionUnionType::class, $unionParameter->getType());
         self::assertInstanceOf(ReflectionIntersectionType::class, $intersectionParameter->getType());
     }

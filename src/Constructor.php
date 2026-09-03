@@ -9,6 +9,9 @@ use DateTime;
 use DateTimeImmutable;
 use DateTimeInterface;
 use DateTimeZone;
+use Exception;
+use Fabiomez\ObjectConstructor\Builders\BuiltInBuilder;
+use Fabiomez\ObjectConstructor\Builders\EnumBuilder;
 use Fabiomez\ObjectConstructor\Metadata\ClassMetadata;
 use Fabiomez\ObjectConstructor\Metadata\MetadataCache;
 use Fabiomez\ObjectConstructor\Metadata\ParameterMetadata;
@@ -23,7 +26,9 @@ use ReflectionIntersectionType;
 use ReflectionNamedType;
 use ReflectionType;
 use ReflectionUnionType;
+use Stringable;
 use Throwable;
+use UnitEnum;
 
 final class Constructor
 {
@@ -34,13 +39,12 @@ final class Constructor
     ) {
     }
 
-    /** @throws ReflectionException */
+
     public function create(string $className, mixed $inputData, ?ConstructionOptions $options = null): object
     {
         return $this->construct($className, $inputData, $options);
     }
 
-    /** @throws ReflectionException */
     public function construct(string $className, mixed $inputData, ?ConstructionOptions $options = null): object
     {
         $options ??= new ConstructionOptions();
@@ -48,20 +52,27 @@ final class Constructor
 
         if ($classMetadata->parameters === []) {
             if ($inputData !== [] && $inputData !== null) {
-                throw new ConstructException('', "Class {$className} does not accept constructor arguments.");
+                throw new ConstructException('', "Class $className does not accept constructor arguments.");
             }
             return new $className();
         }
 
         if (!is_array($inputData) || count($classMetadata->parameters) === 1) {
-            return $this->constructSingleValueObject($className, $classMetadata->parameters[0], $inputData, $options);
+            return $this->constructSingleAttributeObject(
+                $className,
+                $classMetadata->parameters[0],
+                $inputData,
+                $options
+            );
         }
 
-        return $this->constructMultiValueObject($className, $classMetadata, $inputData, $options);
+        return $this->constructMultiAttributeObject($className, $classMetadata, $inputData, $options);
     }
 
-    /** @throws ReflectionException */
-    private function constructSingleValueObject(
+    /**
+     * @throws ReflectionException|\DateInvalidTimeZoneException
+     */
+    private function constructSingleAttributeObject(
         string $className,
         ParameterMetadata $parameter,
         mixed $inputData,
@@ -72,16 +83,18 @@ final class Constructor
 
     /**
      * @param array<array-key, mixed> $inputData
-     * @throws ReflectionException
      */
-    private function constructMultiValueObject(
+    private function constructMultiAttributeObject(
         string $className,
         ClassMetadata $classMetadata,
         array $inputData,
         ConstructionOptions $options,
     ): object {
         if ($options->unknownProperties === UnknownPropertyHandling::FAIL) {
-            $known = array_map(static fn (ParameterMetadata $parameter): string => $parameter->name, $classMetadata->parameters);
+            $known = array_map(
+                static fn (ParameterMetadata $parameter): string => $parameter->name,
+                $classMetadata->parameters
+            );
             $unknown = array_diff(array_keys($inputData), $known);
             if ($unknown !== []) {
                 throw new ConstructException((string) reset($unknown), 'Unknown constructor property.');
@@ -119,7 +132,9 @@ final class Constructor
         throw new ConstructException($parameter->name, 'Required constructor parameter is missing.');
     }
 
-    /** @throws ReflectionException */
+    /**
+     * @throws ReflectionException|\DateInvalidTimeZoneException
+     */
     private function constructParameterValue(ParameterMetadata $parameter, mixed $value, ConstructionOptions $options): mixed
     {
         foreach ($this->resolvers as $resolver) {
@@ -149,32 +164,34 @@ final class Constructor
         throw new ConstructException('', 'Unsupported reflection type.');
     }
 
-    /** @throws ReflectionException */
+    /**
+     * @throws ReflectionException|\DateInvalidTimeZoneException
+     */
     private function constructNamedType(ReflectionNamedType $type, mixed $value, ConstructionOptions $options): mixed
     {
-        $name = $type->getName();
-        if ($name === 'mixed') {
+        $typeName = $type->getName();
+        if ($typeName === 'mixed') {
             return $value;
         }
         if ($type->isBuiltin()) {
-            return $this->castBuiltin($name, $value, $options->mode);
+            return BuiltInBuilder::buildByMode($typeName, $value, $options->mode);
         }
-        if (is_a($name, BackedEnum::class, true)) {
-            return $name::from($value);
+        if (is_a($typeName, UnitEnum::class, true)) {
+            return EnumBuilder::build($typeName, $value);
         }
-        if ($name === DateTime::class) {
+        if ($typeName === DateTime::class) {
             return $this->constructDateTime($value, false);
         }
-        if ($name === DateTimeImmutable::class) {
+        if ($typeName === DateTimeImmutable::class) {
             return $this->constructDateTime($value, true);
         }
-        if (is_object($value) && $value instanceof $name) {
+        if ($value instanceof $typeName) {
             return $value;
         }
 
-        /** @var class-string<object> $name */
-        $reflection = new ReflectionClass($name);
-        $factory = $reflection->getAttributes(Factoryable::class)[0] ?? null;
+        /** @var class-string<object> $typeName */
+        $reflection = new ReflectionClass($typeName);
+        $factory = $reflection->getAttributes(Buildable::class)[0] ?? null;
         if ($factory !== null) {
             return $factory->newInstance()->create($value);
         }
@@ -187,42 +204,14 @@ final class Constructor
             $value = $this->constructCollectionItems($collection, $value, $options);
         }
 
-        return $this->construct($name, $value, $options);
+        return $this->construct($typeName, $value, $options);
     }
 
-    private function castBuiltin(string $name, mixed $value, ConstructionMode $mode): mixed
-    {
-        if ($mode === ConstructionMode::STRICT) {
-            $valid = match ($name) {
-                'int' => is_int($value),
-                'float' => is_float($value) || is_int($value),
-                'string' => is_string($value),
-                'bool' => is_bool($value),
-                'array' => is_array($value),
-                'object' => is_object($value),
-                'iterable' => is_iterable($value),
-                'callable' => is_callable($value),
-                'null' => $value === null,
-                default => true,
-            };
-            if (!$valid) {
-                throw new ConstructException('', "Value is not compatible with {$name}.");
-            }
-            return $value;
-        }
-
-        return match ($name) {
-            'int' => is_numeric($value) ? (int) $value : $value,
-            'float' => is_numeric($value) ? (float) $value : $value,
-            'string' => is_scalar($value) || $value instanceof \Stringable ? (string) $value : $value,
-            'bool' => is_string($value) ? filter_var($value, FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) ?? $value : (bool) $value,
-            default => $value,
-        };
-    }
-
-    /** @throws ReflectionException */
-    private function constructUnionType(ReflectionUnionType $type, mixed $value, ConstructionOptions $options): mixed
-    {
+    private function constructUnionType(
+        ReflectionUnionType $type,
+        mixed $value,
+        ConstructionOptions $options
+    ): mixed {
         $candidates = $type->getTypes();
 
         foreach ($candidates as $candidate) {
@@ -230,11 +219,11 @@ final class Constructor
                 continue;
             }
             $name = $candidate->getName();
-            if (!$candidate->isBuiltin() && is_object($value) && $value instanceof $name) {
+            if (!$candidate->isBuiltin() && $value instanceof $name) {
                 return $value;
             }
-            if ($candidate->isBuiltin() && $this->isCompatibleBuiltin($name, $value)) {
-                return $this->castBuiltin($name, $value, $options->mode);
+            if ($candidate->isBuiltin() && BuiltInBuilder::isCompatible($name, $value)) {
+                return BuiltInBuilder::buildByMode($name, $value, $options->mode);
             }
         }
 
@@ -251,7 +240,9 @@ final class Constructor
         throw new ConstructException('', 'Unable to resolve union type. ' . implode(' | ', $errors));
     }
 
-    /** @throws ReflectionException */
+    /**
+     * @throws ReflectionException|\DateInvalidTimeZoneException
+     */
     private function constructUnionCandidate(ReflectionType $candidate, mixed $value, ConstructionOptions $options): mixed
     {
         if ($candidate instanceof ReflectionNamedType) {
@@ -265,22 +256,6 @@ final class Constructor
         throw new ConstructException('', 'Unsupported union member type.');
     }
 
-    private function isCompatibleBuiltin(string $name, mixed $value): bool
-    {
-        return match ($name) {
-            'int' => is_int($value),
-            'float' => is_float($value) || is_int($value),
-            'string' => is_string($value),
-            'bool' => is_bool($value),
-            'array' => is_array($value),
-            'object' => is_object($value),
-            'iterable' => is_iterable($value),
-            'callable' => is_callable($value),
-            'mixed' => true,
-            default => false,
-        };
-    }
-
     private function constructIntersectionType(ReflectionIntersectionType $type, mixed $value): object
     {
         if (!is_object($value)) {
@@ -292,7 +267,7 @@ final class Constructor
             }
             $name = $candidate->getName();
             if (!$value instanceof $name) {
-                throw new ConstructException('', "Object does not satisfy {$name}.");
+                throw new ConstructException('', "Object does not satisfy $name.");
             }
         }
         return $value;
@@ -306,6 +281,9 @@ final class Constructor
         return (string) $type;
     }
 
+    /**
+     * @throws \DateInvalidTimeZoneException|Exception
+     */
     private function constructDateTime(mixed $value, bool $immutable): DateTimeInterface
     {
         $className = $immutable ? DateTimeImmutable::class : DateTime::class;
@@ -331,15 +309,14 @@ final class Constructor
      * @param ReflectionAttribute<Collection> $attribute
      * @param array<array-key, mixed> $items
      * @return array<array-key, mixed>
+     * @throws ReflectionException|\DateInvalidTimeZoneException
      */
     private function constructCollectionItems(ReflectionAttribute $attribute, array $items, ConstructionOptions $options): array
     {
         /** @var class-string<object> $itemClassName */
         $itemClassName = $attribute->newInstance()->itemType;
-        $builtItems = [];
-        foreach ($items as $key => $item) {
-            $builtItems[$key] = $this->construct($itemClassName, $item, $options);
-        }
-        return $builtItems;
+        return array_map(function ($item) use ($itemClassName, $options) {
+            return $this->construct($itemClassName, $item, $options);
+        }, $items);
     }
 }

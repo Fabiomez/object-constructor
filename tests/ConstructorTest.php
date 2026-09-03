@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Tests;
 
 use Fabiomez\ObjectConstructor\ConstructException;
-use Fabiomez\ObjectConstructor\Constructor;
+use Fabiomez\ObjectConstructor\Builders;
 use PHPUnit\Framework\TestCase;
 use Tests\Stubs\Client;
 use Tests\Stubs\CountryCode;

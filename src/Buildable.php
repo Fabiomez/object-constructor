@@ -7,8 +7,8 @@ namespace Fabiomez\ObjectConstructor;
 use Attribute;
 use Closure;
 
-#[Attribute]
-final class Factoryable
+#[Attribute(Attribute::TARGET_CLASS)]
+final class Buildable
 {
     private Closure $factory;
 
@@ -17,7 +17,7 @@ final class Factoryable
         $this->factory = Closure::fromCallable($factory);
     }
 
-    public function create(mixed $inputData): mixed
+    public function build(mixed $inputData): mixed
     {
         $factory = $this->factory;
         return $factory($inputData);
